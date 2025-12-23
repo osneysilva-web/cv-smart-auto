@@ -1,3 +1,4 @@
+// GERA CARTA DE APRESENTAÇÃO (já estava funcionando)
 export async function generateCoverLetter(
   cvData: any,
   companyName: string,
@@ -29,4 +30,24 @@ export async function generateCoverLetter(
     console.error('Erro ao gerar carta:', error);
     throw new Error(error.message || 'Erro inesperado ao gerar a carta de apresentação');
   }
+}
+
+// NOVO: EXTRAI DADOS DO BI (usa a API segura)
+export async function extractPersonalData(files: File[]): Promise<any> {
+  const formData = new FormData();
+  files.forEach((file) => {
+    formData.append('files', file);
+  });
+
+  const response = await fetch('/api/extract-id', {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || 'Falha ao processar documento');
+  }
+
+  return await response.json();
 }
