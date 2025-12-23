@@ -1,0 +1,1 @@
+// Arquivo descontinuado. Toda a lógica foi migrada para o Backend.

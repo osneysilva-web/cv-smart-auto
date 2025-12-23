@@ -1,0 +1,9 @@
+{
+  "name": "CV SMART AUTO",
+  "description": "Gere CVs profissionais em Português e Inglês automaticamente usando IA e OCR a partir do seu BI e Certificados.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
