@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import { CheckCircle, Loader2, ImagePlus, AlertTriangle, User } from 'lucide-react';
-import { extractPersonalData } from '../services/aiService';
 import { uploadUserDocument } from '../services/storageService';
 import { PersonalInfo } from '../types';
-import imageCompression from 'browser-image-compression'; // ← NOVO: compressão
+import imageCompression from 'browser-image-compression';
 
 interface Props {
   onNext: (data: PersonalInfo) => void;
@@ -19,37 +18,31 @@ export const StepUploadID: React.FC<Props> = ({ onNext, onBack, userId, onLoginC
   const [frontFile, setFrontFile] = useState<File | null>(null);
   const [backFile, setBackFile] = useState<File | null>(null);
 
-  // FUNÇÃO NOVA: comprime a imagem antes de salvar
   const compressAndSetFile = async (originalFile: File, type: 'front' | 'back') => {
     console.log(`Tamanho original (${type}):`, (originalFile.size / 1024 / 1024).toFixed(2) + ' MB');
 
     const options = {
-      maxSizeMB: 1,              // Máximo 1 MB
-      maxWidthOrHeight: 1920,    // Reduz resolução se necessário
-      useWebWorker: true,        // Não trava a tela
-      fileType: 'image/jpeg',    // Converte tudo pra JPEG (melhor compressão)
+      maxSizeMB: 1,
+      maxWidthOrHeight: 1920,
+      useWebWorker: true,
+      fileType: 'image/jpeg',
     };
 
     try {
       const compressedFile = await imageCompression(originalFile, options);
       console.log(`Tamanho comprimido (${type}):`, (compressedFile.size / 1024 / 1024).toFixed(2) + ' MB');
 
-      if (type === 'front') {
-        setFrontFile(compressedFile);
-      } else {
-        setBackFile(compressedFile);
-      }
+      if (type === 'front') setFrontFile(compressedFile);
+      else setBackFile(compressedFile);
       setError('');
     } catch (err) {
       console.error('Erro ao comprimir imagem:', err);
-      // Se falhar a compressão, usa a original mesmo (melhor que bloquear)
       if (type === 'front') setFrontFile(originalFile);
       else setBackFile(originalFile);
       setError('');
     }
   };
 
-  // Alteramos aqui: agora comprime antes de salvar
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'front' | 'back') => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -62,22 +55,47 @@ export const StepUploadID: React.FC<Props> = ({ onNext, onBack, userId, onLoginC
       setError("Por favor, envie pelo menos a Frente do BI.");
       return;
     }
+
     setLoading(true);
     setError('');
 
-    try {
-      const filesToProcess = [frontFile];
-      if (backFile) filesToProcess.push(backFile);
+    const formData = new FormData();
+    formData.append("front", frontFile);
+    if (backFile) formData.append("back", backFile);
 
+    try {
+      // Upload opcional para storage (mantido)
       if (userId && frontFile) {
         await uploadUserDocument(frontFile, userId, 'ID_FRONT');
       }
 
-      const data = await extractPersonalData(filesToProcess);
-      onNext(data);
+      const response = await fetch("/api/analyze-bi", {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Erro ao analisar o BI");
+      }
+
+      // Mapeamento correto para o seu PersonalInfo
+      const extracted: PersonalInfo = {
+        fullName: result.data.nome_completo || '',
+        address: '', // não vem do BI, deixa vazio
+        phone: '',   // não vem do BI, deixa vazio
+        email: '',   // não vem do BI, deixa vazio
+        nationality: result.data.nacionalidade || '',
+        idNumber: result.data.numero_bi || '', // ← campo correto do seu type!
+        birthDate: result.data.data_nascimento || '',
+        // linkedin é opcional, não precisa definir
+      };
+
+      onNext(extracted);
     } catch (err: any) {
       console.error('Erro ao processar BI:', err);
-      setError('Falha ao processar BI. Verifique a qualidade da imagem.');
+      setError(err.message || 'Falha ao processar BI. Verifique a qualidade da imagem.');
     } finally {
       setLoading(false);
     }
@@ -88,7 +106,7 @@ export const StepUploadID: React.FC<Props> = ({ onNext, onBack, userId, onLoginC
       <input
         type="file"
         accept="image/*"
-        capture="environment" // ← Permite câmera diretamente no celular
+        capture="environment"
         onChange={onChange}
         className="absolute inset-0 opacity-0 cursor-pointer z-10"
       />
@@ -112,7 +130,6 @@ export const StepUploadID: React.FC<Props> = ({ onNext, onBack, userId, onLoginC
 
   return (
     <div className="max-w-md mx-auto relative bg-white p-10 rounded-[40px] shadow-2xl border border-slate-200 mt-12 animate-in fade-in zoom-in duration-300">
-      {/* Botão Login */}
       <button
         onClick={onLoginClick}
         className="absolute -top-4 -right-4 bg-slate-900 text-white p-3 rounded-2xl shadow-xl hover:bg-black transition-all flex items-center gap-2 z-20 group"
@@ -132,7 +149,6 @@ export const StepUploadID: React.FC<Props> = ({ onNext, onBack, userId, onLoginC
         <UploadBox label="Verso do BI" file={backFile} onChange={(e) => handleFileChange(e, 'back')} />
       </div>
 
-      {/* Dica pro usuário */}
       <p className="text-xs text-slate-500 text-center mb-6">
         Dica: Use boa iluminação e segure firme. A imagem será otimizada automaticamente.
       </p>
@@ -152,7 +168,7 @@ export const StepUploadID: React.FC<Props> = ({ onNext, onBack, userId, onLoginC
         {loading ? (
           <>
             <Loader2 className="animate-spin" size={24} strokeWidth={3} />
-            Lendo Documento...
+            Analisando com IA...
           </>
         ) : (
           <>
