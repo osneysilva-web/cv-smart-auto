@@ -10,6 +10,29 @@
     <link rel="manifest" href="manifest.json" />
     <title>CV Automático - AI Resume Builder</title>
 
+    <!-- Tailwind CDN (volta o design bonito imediatamente) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      window.tailwind = {
+        config: {
+          theme: {
+            extend: {
+              colors: {
+                brand: {
+                  50: '#f0f9ff',
+                  100: '#e0f2fe',
+                  500: '#0ea5e9',
+                  600: '#0284c7',
+                  700: '#0369a1',
+                  900: '#0c4a6e',
+                }
+              }
+            }
+          }
+        }
+      }
+    </script>
+
     <script type="importmap">
     {
       "imports": {
@@ -25,7 +48,7 @@
     }
     </script>
 
-    <link rel="stylesheet" href="/index.tw.css" />
+    <!-- Remove o link para index.tw.css (não precisa mais) -->
   </head>
   <body>
     <div id="root"></div>
