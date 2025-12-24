@@ -1,5 +1,30 @@
 @import "tailwindcss";
 
+/* Scanning mais amplo — cobre toda a pasta src e subpastas, app, components, etc. */
+@source "./**/*.{js,ts,jsx,tsx,html}";
+@source "../**/*.{js,ts,jsx,tsx,html}";
+@source "../../**/*.{html}";
+
+/* Força inclusão de classes comuns que você provavelmente usa (botões, cards, inputs, etc.) */
+@layer utilities {
+  .bg-brand-500 { background-color: #0ea5e9; }
+  .text-brand-600 { color: #0284c7; }
+  .hover\:bg-brand-600:hover { background-color: #0284c7; }
+  .rounded-lg { border-radius: 0.5rem; }
+  .shadow-md { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+  .p-4 { padding: 1rem; }
+  .px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+  .py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+  .flex { display: flex; }
+  .items-center { align-items: center; }
+  .justify-center { justify-content: center; }
+  .text-white { color: white; }
+  .font-bold { font-weight: 700; }
+  .text-lg { font-size: 1.125rem; }
+  .border { border-width: 1px; }
+  .border-gray-300 { border-color: #d1d5db; }
+}
+
 @theme {
   --color-brand-50: #f0f9ff;
   --color-brand-100: #e0f2fe;
