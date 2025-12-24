@@ -1,4 +1,3 @@
-
 import { supabase } from './supabaseClient';
 
 /**
@@ -13,7 +12,7 @@ export const uploadUserDocument = async (file: File, userId: string, category: '
     const safeFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
     const filePath = `user-${userId}/${Date.now()}-${safeFileName}`;
 
-    // 1. Tentar Upload para o Storage (Buckets são mais flexíveis que tabelas com FK)
+    // 1. Upload para o Storage
     const { error: uploadError, data: uploadData } = await supabase
       .storage
       .from('uploads')
@@ -24,22 +23,25 @@ export const uploadUserDocument = async (file: File, userId: string, category: '
       return null;
     }
 
-    // 2. Tentar inserir metadados na tabela 'documents'
-    // Se o userId for um UUID de convidado, a FK na tabela documents pode falhar se não houver trigger.
+    // 2. Upsert na tabela 'documents' — resolve o 409 Conflict para sempre
     const { data, error: dbError } = await supabase
       .from('documents')
-      .insert([{
-        user_id: userId,
-        file_path: uploadData.path,
-        file_bucket: 'uploads',
-        file_type: file.type,
-        category: category 
-      }])
+      .upsert(
+        [{
+          user_id: userId,
+          file_path: uploadData.path,
+          file_bucket: 'uploads',
+          file_type: file.type,
+          category: category,
+          updated_at: new Date().toISOString(), // opcional: atualiza timestamp
+        }],
+        { onConflict: 'user_id' } // ← chave que evita conflito (ajuste se sua constraint for diferente)
+      )
       .select()
       .single();
 
     if (dbError) {
-      // Código de erro de violação de FK no PostgreSQL
+      // Violação de FK (usuário convidado)
       if (dbError.code === '23503') {
         console.info("ℹ️ Usuário Convidado: Documento analisado pela IA mas metadados não salvos por restrição de conta.");
       } else {
@@ -69,7 +71,7 @@ export const uploadGeneratedPDF = async (blob: Blob, userId: string, fileName: s
           .from('uploads')
           .upload(filePath, blob, {
               contentType: 'application/pdf',
-              upsert: true
+              upsert: true  // já tem upsert aqui, bom!
           });
 
       if (uploadError) return null;
