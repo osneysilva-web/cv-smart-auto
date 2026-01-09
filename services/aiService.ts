@@ -1,5 +1,4 @@
-
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { CVData, PersonalInfo, LocalizedContent, EducationItem, ExperienceItem } from "../types";
 
 // Função utilitária para converter arquivo em base64 para o Gemini
@@ -9,11 +8,12 @@ export const fileToGenerativePart = async (file: File): Promise<any> => {
     reader.onloadend = () => {
       const result = reader.result as string;
       if (!result.includes(',')) reject(new Error("Erro ao ler arquivo"));
-      else resolve({
+      const base64 = result.split(',')[1];
+      resolve({
         inlineData: {
-          data: result.split(',')[1],
-          mimeType: file.type
-        }
+          data: base64,
+          mimeType: file.type,
+        },
       });
     };
     reader.onerror = reject;
@@ -23,98 +23,67 @@ export const fileToGenerativePart = async (file: File): Promise<any> => {
 
 /**
  * EXTRAÇÃO DE DADOS PESSOAIS (OCR)
- * Usa Gemini 3 Flash para máxima velocidade.
  */
 export const extractPersonalData = async (files: File[]): Promise<PersonalInfo> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const fileParts = await Promise.all(files.map(fileToGenerativePart));
-  
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: [{
-      parts: [
-        { text: "Analise as imagens do Bilhete de Identidade (BI). Extraia rigorosamente em JSON: fullName, address, nationality, idNumber, birthDate. Ignore campos de contacto se não estiverem no BI." },
-        ...fileParts
-      ]
-    }],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          fullName: { type: Type.STRING },
-          address: { type: Type.STRING },
-          nationality: { type: Type.STRING },
-          idNumber: { type: Type.STRING },
-          birthDate: { type: Type.STRING }
-        },
-        required: ["fullName"]
-      }
-    }
-  });
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Chave Gemini não configurada (VITE_GEMINI_API_KEY)");
 
-  const data = JSON.parse(response.text || '{}');
-  return {
-    ...data,
-    phone: "",
-    email: ""
-  };
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+  const fileParts = await Promise.all(files.map(fileToGenerativePart));
+
+  const prompt = "Analise as imagens do Bilhete de Identidade (BI). Extraia rigorosamente em JSON: fullName, address, nationality, idNumber, birthDate. Ignore campos de contacto se não estiverem no BI.";
+
+  const result = await model.generateContent([prompt, ...fileParts]);
+  const response = await result.response;
+  const text = response.text();
+
+  try {
+    const data = JSON.parse(text);
+    return {
+      fullName: data.fullName || "",
+      address: data.address || "",
+      nationality: data.nationality || "Moçambicana",
+      idNumber: data.idNumber || "",
+      birthDate: data.birthDate || "",
+      phone: "",
+      email: ""
+    };
+  } catch (e) {
+    console.error("Erro ao parsear JSON do Gemini:", e);
+    return { fullName: "Nome não detectado", address: "", nationality: "", idNumber: "", birthDate: "", phone: "", email: "" };
+  }
 };
 
 /**
  * EXTRAÇÃO DE DIPLOMAS/CERTIFICADOS
  */
 export const extractDocumentsData = async (files: File[]): Promise<{ education: EducationItem[], experience: ExperienceItem[] }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Chave Gemini não configurada");
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
   const fileParts = await Promise.all(files.map(fileToGenerativePart));
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: [{
-      parts: [
-        { text: "Extraia informações de educação e experiência profissional destes certificados e documentos. Retorne JSON." },
-        ...fileParts
-      ]
-    }],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          education: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                course: { type: Type.STRING },
-                institution: { type: Type.STRING },
-                year: { type: Type.STRING }
-              }
-            }
-          },
-          experience: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                role: { type: Type.STRING },
-                company: { type: Type.STRING },
-                period: { type: Type.STRING },
-                description: { type: Type.STRING }
-              }
-            }
-          }
-        }
-      }
-    }
-  });
+  const prompt = "Extraia informações de educação e experiência profissional destes certificados e documentos. Retorne JSON com education (array) e experience (array).";
 
-  return JSON.parse(response.text || '{"education":[], "experience":[]}');
+  const result = await model.generateContent([prompt, ...fileParts]);
+  const response = await result.response;
+  const text = response.text();
+
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    console.error("Erro ao parsear documentos:", e);
+    return { education: [], experience: [] };
+  }
 };
 
 /**
  * GERAÇÃO DE CV COMPLETO (BI-LINGUE)
- * Usa Gemini 3 Pro para redação executiva premium.
  */
 export const generateFullCV = async (
   personal: PersonalInfo, 
@@ -122,70 +91,75 @@ export const generateFullCV = async (
   manualEd: EducationItem[],
   manualExp: ExperienceItem[]
 ): Promise<{ pt: LocalizedContent, en: LocalizedContent }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Chave Gemini não configurada");
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+
   const education = [...certs, ...manualEd];
   const experience = manualExp;
 
-  const prompt = `Atue como um Especialista em Recrutamento de Elite. Gere um currículo bilingue (PT e EN) de alto impacto.
+  const prompt = `Atue como Especialista em Recrutamento de Elite. Gere currículo bilingue (PT e EN) de alto impacto.
   Dados: ${JSON.stringify({ personal, education, experience })}
-  Regras: Perfil objetivo forte, skills modernas e descrições de cargo expandidas com foco em resultados.`;
+  Retorne JSON com pt e en (objective, skills array, education array, experience array com description impactante).`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: [{ parts: [{ text: prompt }] }],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          pt: { type: Type.OBJECT, properties: { objective: { type: Type.STRING }, skills: { type: Type.ARRAY, items: { type: Type.STRING } }, education: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { course: { type: Type.STRING }, institution: { type: Type.STRING }, year: { type: Type.STRING } } } }, experience: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { role: { type: Type.STRING }, company: { type: Type.STRING }, period: { type: Type.STRING }, description: { type: Type.STRING } } } } } },
-          en: { type: Type.OBJECT, properties: { objective: { type: Type.STRING }, skills: { type: Type.ARRAY, items: { type: Type.STRING } }, education: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { course: { type: Type.STRING }, institution: { type: Type.STRING }, year: { type: Type.STRING } } } }, experience: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { role: { type: Type.STRING }, company: { type: Type.STRING }, period: { type: Type.STRING }, description: { type: Type.STRING } } } } } }
-        }
-      }
-    }
-  });
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  const text = response.text();
 
-  return JSON.parse(response.text || '{}');
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    console.error("Erro ao gerar CV:", e);
+    return { pt: {}, en: {} };
+  }
 };
 
 /**
- * GERAÇÃO DE CARTA DE APRESENTAÇÃO (HÍBRIDA GEMINI/OPENAI)
+ * GERAÇÃO DE CARTA DE APRESENTAÇÃO
  */
 export const generateCoverLetter = async (cvData: CVData, companyName: string, position: string, lang: 'PT' | 'EN'): Promise<string> => {
-  // Usaremos o Gemini 3 Flash para esta tarefa por padrão (mais rápido e já configurado)
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: `Escreva uma carta de apresentação profissional para ${cvData.personal.fullName} dirigida à empresa ${companyName} para o cargo de ${position}. Idioma: ${lang}. Seja persuasivo e formal. Retorne apenas o texto da carta.`
-  });
-  
-  return response.text || "";
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Chave Gemini não configurada");
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+  const prompt = `Escreva uma carta de apresentação profissional para ${cvData.personal.fullName} dirigida à empresa ${companyName} para o cargo de ${position}. Idioma: ${lang === 'PT' ? 'Português formal' : 'English formal'}. Seja persuasivo, destaque conquistas e termine com chamada para entrevista. Máximo 400 palavras.`;
+
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  return response.text() || "Erro ao gerar carta.";
 };
 
 /**
- * SERVIÇO OPENAI (Integrado via chave direta para tarefas premium)
+ * OPENAI (opcional - se quiser usar GPT-4)
  */
 export const generateWithOpenAI = async (prompt: string): Promise<string> => {
-    const apiKey = "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";
-    
-    try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                model: "gpt-4-turbo",
-                messages: [{ role: "user", content: prompt }],
-                temperature: 0.7
-            })
-        });
-        const data = await response.json();
-        return data.choices[0].message.content;
-    } catch (e) {
-        console.error("Erro OpenAI:", e);
-        return "";
-    }
+  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+  if (!apiKey) {
+    console.warn("Chave OpenAI não configurada - usando Gemini como fallback");
+    return "";
+  }
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4-turbo",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.7
+      })
+    });
+    const data = await response.json();
+    return data.choices[0].message.content || "";
+  } catch (e) {
+    console.error("Erro OpenAI:", e);
+    return "";
+  }
 };
